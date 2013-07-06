@@ -69,9 +69,6 @@ new	Handle:AdminMenuHandle  = INVALID_HANDLE,
 	Handle:mp_restartwarmup = INVALID_HANDLE,
 	Handle:GameMode         = INVALID_HANDLE,
 	Handle:SwitchAction     = INVALID_HANDLE,
-#if defined _steamtools_included
-	String:OriginalDescription[64],
-#endif
 	GunGameVersion          = -1,
 	bool:PrintInfoAtStart   = false;
 
@@ -79,7 +76,7 @@ public Plugin:myinfo =
 {
 	name        = PLUGIN_NAME,
 	author      = "Root",
-	description = "Allows admins to switch game modes on-the-fly",
+	description = "Allows admins to switch game modes (GG, H&S, DM, ZM and Realism) on-the-fly",
 	version     = PLUGIN_VERSION,
 	url         = "http://dodsplugins.com/"
 };
@@ -93,8 +90,8 @@ public OnPluginStart()
 {
 	// Create console variables
 	CreateConVar("dod_modswitcher_version", PLUGIN_VERSION, PLUGIN_NAME, FCVAR_NOTIFY|FCVAR_DONTRECORD);
-	GameMode     = CreateConVar("dod_gamemode",               "",  "Sets the GameMode:\n0 = Default\ng = GunGame\nh = Hide & Seek\nd = DeathMatch\nz = Zombie Mod\nr = Realism Match", FCVAR_PLUGIN, true, 0.0);
-	SwitchAction = CreateConVar("dod_gamemode_switch_action", "1", "Determines an action when GameMode has changed:\n0 = Round restart\n1 = Map restart", FCVAR_PLUGIN, true, 0.0, true, 1.0);
+	GameMode     = CreateConVar("dod_gamemode",               "",  "Sets the game mode:\ng = GunGame\nh = Hide & Seek\nd = DeathMatch\nz = Zombie Mod\nr = Realism Match", FCVAR_PLUGIN, true, 0.0);
+	SwitchAction = CreateConVar("dod_gamemode_switch_action", "1", "Determines an action when game mode has changed:\n0 = Round restart\n1 = Map restart", FCVAR_PLUGIN, true, 0.0, true, 1.0);
 
 	// Hook main ConVar changes to detect selected game modes
 	HookConVarChange(GameMode, UpdateGameMode);
@@ -194,17 +191,6 @@ public OnAllPluginsLoaded()
 	{
 		RM_Available = true;
 	}
-
-#if defined _steamtools_included
-	// If SteamTools is included, make sure library is exists
-	if (LibraryExists("SteamTools"))
-	{
-		// Then we can easily save original game description for future usage
-		decl String:gameDesc[64];
-		GetGameDescription(gameDesc, sizeof(gameDesc), false);
-		strcopy(OriginalDescription, sizeof(OriginalDescription), gameDesc);
-	}
-#endif
 }
 
 /* OnAllPluginsLoaded()
@@ -354,6 +340,7 @@ public UpdateGameMode(Handle:convar, const String:oldValue[], const String:newVa
 				LoadPlugin(RealismMatch);
 			}
 		}
+
 #if defined _steamtools_included
 		default:
 		{
@@ -361,13 +348,14 @@ public UpdateGameMode(Handle:convar, const String:oldValue[], const String:newVa
 			if (LibraryExists("SteamTools"))
 			{
 				// Yep, set the game description to original (because GG, H&S, DM, ZM is having custom game description)
-				Steam_SetGameDescription(OriginalDescription);
+				Steam_SetGameDescription("Day of Defeat: Source");
 			}
 		}
 #endif
+
 	}
 
-	// Refresh configs
+	// Refresh configs after changing mode
 	OnAutoConfigsBuffered();
 
 	// BTW 4 seconds is actually 3 for mp_restartwarmup cvar
@@ -393,7 +381,7 @@ public OnRoundStart(Handle:event, const String:name[], bool:dontBroadcast)
 	// Players should be notified about mod changes?
 	if (PrintInfoAtStart == true)
 	{
-		// Yea, retrieve the ConVar string to show to 'what mod we have changed exactly'
+		// Retrieve the ConVar string to show to 'what mod we have changed exactly'
 		decl String:value[2], String:gamemodestr[32];
 		GetConVarString(GameMode, value, sizeof(value));
 
@@ -409,10 +397,10 @@ public OnRoundStart(Handle:event, const String:name[], bool:dontBroadcast)
 			default:  FormatEx(gamemodestr, sizeof(gamemodestr), "default gamemode");
 		}
 
-		// Notify all players about gameplay changes
+		// Notify all players about new gameplay
 		PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05Server is currently running \x04%s.", gamemodestr);
 
-		// No need to show message at every round
+		// Don't show message next time
 		PrintInfoAtStart = false;
 	}
 }
@@ -571,6 +559,8 @@ public Action:Timer_RefreshMap(Handle:timer)
 	// Get the current map and use ForceChangeLevel native (Approve rules?)
 	decl String:curmap[PLATFORM_MAX_PATH];
 	GetCurrentMap(curmap, sizeof(curmap));
+
+	// No reason
 	ForceChangeLevel(curmap, NULL_STRING);
 }
 
