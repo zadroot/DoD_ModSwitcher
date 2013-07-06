@@ -82,6 +82,16 @@ public Plugin:myinfo =
 };
 
 
+/* AskPluginLoad2()
+ *
+ * Called before plugin starts.
+ * ----------------------------------------------------------------- */
+public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
+{
+	MarkNativeAsOptional("Steam_SetGameDescription");
+	return APLRes_Success;
+}
+
 /* OnPluginStart()
  *
  * When the plugin starts up.
@@ -90,7 +100,7 @@ public OnPluginStart()
 {
 	// Create console variables
 	CreateConVar("dod_modswitcher_version", PLUGIN_VERSION, PLUGIN_NAME, FCVAR_NOTIFY|FCVAR_DONTRECORD);
-	GameMode     = CreateConVar("dod_gamemode",               "",  "Sets the game mode:\ng = GunGame\nh = Hide & Seek\nd = DeathMatch\nz = Zombie Mod\nr = Realism Match", FCVAR_PLUGIN, true, 0.0);
+	GameMode     = CreateConVar("dod_gamemode",               "",  "Sets the game mode:\n0 = Default\ng = GunGame\nh = Hide & Seek\nd = DeathMatch\nz = Zombie Mod\nr = Realism Match", FCVAR_PLUGIN, true, 0.0);
 	SwitchAction = CreateConVar("dod_gamemode_switch_action", "1", "Determines an action when game mode has changed:\n0 = Round restart\n1 = Map restart", FCVAR_PLUGIN, true, 0.0, true, 1.0);
 
 	// Hook main ConVar changes to detect selected game modes
@@ -221,7 +231,7 @@ public OnAutoConfigsBuffered()
 	}
 	else if (RM_Loaded)
 	{
-		// Then mod-specified config would load at every mapchange, didnt it?
+		// Then mod-specified config would load at every mapchange (didnt it?)
 		ServerCommand("exec %s", PluginConfigFiles[RealismMatch]);
 	}
 }
@@ -347,7 +357,7 @@ public UpdateGameMode(Handle:convar, const String:oldValue[], const String:newVa
 			// If mod was changed to default, once again make sure SteamTools is working
 			if (LibraryExists("SteamTools"))
 			{
-				// Yep, set the game description to original (because GG, H&S, DM, ZM is having custom game description)
+				// And now set the game description to original (because GG, H&S, DM, ZM is having custom game description)
 				Steam_SetGameDescription("Day of Defeat: Source");
 			}
 		}
@@ -355,7 +365,7 @@ public UpdateGameMode(Handle:convar, const String:oldValue[], const String:newVa
 
 	}
 
-	// Refresh configs after changing mode
+	// Refresh configs after changing a mode
 	OnAutoConfigsBuffered();
 
 	// BTW 4 seconds is actually 3 for mp_restartwarmup cvar
@@ -398,7 +408,7 @@ public OnRoundStart(Handle:event, const String:name[], bool:dontBroadcast)
 		}
 
 		// Notify all players about new gameplay
-		PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05Server is currently running \x04%s.", gamemodestr);
+		PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05Server is now running \x04%s.", gamemodestr);
 
 		// Don't show message next time
 		PrintInfoAtStart = false;
