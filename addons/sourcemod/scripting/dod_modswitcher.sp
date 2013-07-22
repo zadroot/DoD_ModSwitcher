@@ -5,7 +5,7 @@
 *   Allows admins to switch game modes on-the-fly via menu.
 *   Game modes that switcher supports: GunGame, Hide & Seek, DeathMatch, Zombie Mod and Realism Match Helper.
 *
-* Version 1.0
+* Version 1.1
 * Changelog & more info at http://goo.gl/4nKhJ
 */
 
@@ -19,7 +19,9 @@
 
 // ====[ CONSTANTS ]===================================================
 #define PLUGIN_NAME    "DoD:S Mod Switcher"
-#define PLUGIN_VERSION "1.0"
+#define PLUGIN_VERSION "1.1"
+
+#define DOD_MAXPLAYERS 33
 
 enum // Game Modes defines
 {
@@ -69,8 +71,15 @@ new	Handle:AdminMenuHandle  = INVALID_HANDLE,
 	Handle:mp_restartwarmup = INVALID_HANDLE,
 	Handle:GameMode         = INVALID_HANDLE,
 	Handle:SwitchAction     = INVALID_HANDLE,
+	Handle:VoteModeEnabled  = INVALID_HANDLE,
+	Handle:VoteMinPlayers   = INVALID_HANDLE,
+	Handle:VoteInitDelay    = INVALID_HANDLE,
+	Handle:VoteNeeded       = INVALID_HANDLE,
 	GunGameVersion          = -1,
-	bool:PrintInfoAtStart   = false;
+	NumVoters, NumVotes, VotesNeeded,
+	bool:IsVoted[DOD_MAXPLAYERS + 1],
+	bool:CanRockTheMode,
+	bool:PrintInfoAtStart;
 
 public Plugin:myinfo =
 {
@@ -100,8 +109,12 @@ public OnPluginStart()
 {
 	// Create console variables
 	CreateConVar("dod_modswitcher_version", PLUGIN_VERSION, PLUGIN_NAME, FCVAR_NOTIFY|FCVAR_DONTRECORD);
-	GameMode     = CreateConVar("dod_gamemode",               "",  "Sets the game mode:\n0 = Default\ng = GunGame\nh = Hide & Seek\nd = DeathMatch\nz = Zombie Mod\nr = Realism Match", FCVAR_PLUGIN, true, 0.0);
-	SwitchAction = CreateConVar("dod_gamemode_switch_action", "1", "Determines an action when game mode has changed:\n0 = Round restart\n1 = Map restart", FCVAR_PLUGIN, true, 0.0, true, 1.0);
+	GameMode        = CreateConVar("dod_gamemode",               "",     "Sets the game mode:\n0 = Default\ng = GunGame\nh = Hide & Seek\nd = DeathMatch\nz = Zombie Mod\nr = Realism Match", FCVAR_PLUGIN|FCVAR_DONTRECORD, true, 0.0);
+	SwitchAction    = CreateConVar("dod_gamemode_switch_action", "1",    "Determines an action when game mode has changed (including voting result):\n0 = Round restart\n1 = Map restart",    FCVAR_PLUGIN, true, 0.0, true, 1.0);
+	VoteModeEnabled = CreateConVar("dod_gamemode_vote_enable",   "1",    "Whether or not enable GameMode voting",                                                                             FCVAR_PLUGIN, true, 0.0,  true, 1.0);
+	VoteNeeded      = CreateConVar("dod_gmvote_needed",          "0.60", "Ratio of all players on a server to enable RockTheGameMode",                                                        FCVAR_PLUGIN, true, 0.05, true, 1.0);
+	VoteMinPlayers  = CreateConVar("dod_gmvote_minplayers",      "0",    "Number of minimum players needed to allow RockTheGameMode voting",                                                  FCVAR_PLUGIN, true, 0.0,  true, 33.0);
+	VoteInitDelay   = CreateConVar("dod_gmvote_initialdelay",    "60.0", "Time (in seconds) to wait before first and after next votings",                                                     FCVAR_PLUGIN, true, 0.0);
 
 	// Hook main ConVar changes to detect selected game modes
 	HookConVarChange(GameMode, UpdateGameMode);
@@ -111,6 +124,17 @@ public OnPluginStart()
 
 	// Need to notify players about changed gameplay
 	HookEvent("dod_round_active", OnRoundStart, EventHookMode_PostNoCopy);
+
+	// For !rtm !rtgm and other chat triggers
+	AddCommandListener(OnSayCommand, "say");
+	AddCommandListener(OnSayCommand, "say_team");
+
+	// "No votes cast" / "Vote successfull phrases"
+	LoadTranslations("basevotes.phrases");
+	LoadTranslations("common.phrases");
+
+	// Create modswitcher config in appropriate folder
+	AutoExecConfig(true, "dod_modswitcher", "modswitcher");
 }
 
 /* OnAllPluginsLoaded()
@@ -209,6 +233,12 @@ public OnAllPluginsLoaded()
  * -------------------------------------------------------------------- */
 public OnAutoConfigsBuffered()
 {
+	// Delay to voting
+	CreateTimer(GetConVarFloat(VoteInitDelay), Timer_AllowVoting, _, TIMER_FLAG_NO_MAPCHANGE);
+
+	// Reset everything
+	NumVoters = NumVotes = VotesNeeded = CanRockTheMode = false;
+
 	// If any mod is running atm, exec specified config after mapchange
 	if (GG_Loaded)
 	{
@@ -236,7 +266,7 @@ public OnAutoConfigsBuffered()
 	}
 }
 
-/* OnAllPluginsLoaded()
+/* OnAdminMenuReady()
  *
  * Called when the admin menu is ready to have items added.
  * -------------------------------------------------------------------- */
@@ -382,6 +412,207 @@ public UpdateGameMode(Handle:convar, const String:oldValue[], const String:newVa
 	}
 }
 
+/* OnClientPutInServer()
+ *
+ * Called when a client is entering the game.
+ * -------------------------------------------------------------------- */
+public OnClientPutInServer(client)
+{
+	// Not yet voted
+	IsVoted[client] = false;
+
+	// Increase available voters per map
+	NumVoters++;
+	VotesNeeded = RoundToFloor(NumVotes * GetConVarFloat(VoteNeeded));
+}
+
+/* OnClientDisconnect()
+ *
+ * Called when a client disconnects.
+ * -------------------------------------------------------------------- */
+public OnClientDisconnect(client)
+{
+	// If player has already voted (or just leave during a vote)
+	if (IsVoted[client])
+	{
+		// Decrease amount of votes
+		NumVotes--;
+	}
+
+	// At all
+	NumVotes--;
+
+	// Also set the required amount of voters for RTM
+	VotesNeeded = RoundToFloor(NumVotes * GetConVarFloat(VoteNeeded));
+}
+
+/* OnSayCommand()
+ *
+ * Called when say commands are used.
+ * -------------------------------------------------------------------- */
+public Action:OnSayCommand(client, const String:command[], argc)
+{
+	decl String:text[16];
+
+	// Retrieves argument string from the command (i.e. sended message)
+	GetCmdArgString(text, sizeof(text));
+
+	// Remove quotes from the argument (or triggers will never be detected)
+	StripQuotes(text);
+
+	// Get all the vote triggers
+	if (StrEqual(text,    "rtm",  false)
+	||  StrEqual(text,    "rtgm", false)
+	||  StrEqual(text[1], "rtm",  false) // Including a prefix
+	||  StrEqual(text[1], "rtgm", false) // Like ! or /
+	||  StrEqual(text,    "rockthemode", false)
+	||  StrEqual(text,    "rockthegamemode", false)
+	||  StrEqual(text[1], "rockthemode", false)
+	||  StrEqual(text[1], "rockthegamemode", false))
+	{
+		// Try to vote
+		AttemptGameModeVote(client);
+	}
+}
+
+/* AttemptGameModeVote()
+ *
+ * Attempts to register a player vote.
+ * -------------------------------------------------------------------- */
+AttemptGameModeVote(client)
+{
+	// If plugin is enabled or cooldown is not yet expired
+	if (!GetConVarBool(VoteModeEnabled) && !CanRockTheMode)
+	{
+		ReplyToCommand(client, "\x01[\x04Mod Switcher\x01] \x05RockTheGameMode is not allowed at this moment.");
+		return;
+	}
+	// Not enough players
+	else if (GetClientCount(true) < GetConVarInt(VoteMinPlayers))
+	{
+		// Notify player
+		ReplyToCommand(client, "\x01[\x04Mod Switcher\x01] \x05Not enough players to enable a vote.");
+		return;
+	}
+	else if (IsVoted[client])
+	{
+		// Already voted
+		ReplyToCommand(client, "\x01[\x04Mod Switcher\x01] \x05You have already voted (\x04%i\x05 votes received - \x04%i\x05 needed).", NumVotes, VotesNeeded);
+		return;
+	}
+
+	// Otherwise increase amount of votes and register player vote itself
+	NumVotes++;
+	IsVoted[client] = true;
+
+	// Notify all players that somebody is attemp to change GameMode via voting
+	PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05%N Wants to change game mode (\x04%i\x05 votes received - \x04%i\x05 needed).", client, NumVotes, VotesNeeded);
+
+	// Start rockthemode vote if registering the client vote caused the total votes to exceed the needed ratio
+	if (NumVotes >= VotesNeeded)
+	{
+		// Start voting and set appropriate things
+		StartVoting();
+		CanRockTheMode = false;
+		CreateTimer(GetConVarFloat(VoteInitDelay), Timer_AllowVoting, _, TIMER_FLAG_NO_MAPCHANGE);
+	}
+}
+
+/* StartVoting()
+ *
+ * Creates a vote handler to change mode.
+ * -------------------------------------------------------------------- */
+StartVoting()
+{
+	// Create menu with all actions (including vote actions)
+	new Handle:menu = CreateMenu(VoteMenuHandler, MenuAction:MENU_ACTIONS_ALL);
+
+	// Set menu title
+	SetMenuTitle(menu, "Select Mode:");
+
+	decl String:GameModeIdx[3];
+	if (GG_Available)
+	{
+		// If GG is available, add appropriate one into vote menu
+		IntToString(GunGameVersion, GameModeIdx, sizeof(GameModeIdx));
+		AddMenuItem(menu, GameModeIdx, "GunGame");
+	}
+	if (HS_Available)
+	{
+		// Also set the unique index
+		IntToString(HideAndSeek, GameModeIdx, sizeof(GameModeIdx));
+		AddMenuItem(menu, GameModeIdx, "Hide & Seek");
+	}
+	if (DM_Available)
+	{
+		IntToString(DeathMatch, GameModeIdx, sizeof(GameModeIdx));
+		AddMenuItem(menu, GameModeIdx, "DeathMatch");
+	}
+	if (ZM_Available)
+	{
+		// To track proper gameplay votes
+		IntToString(ZombieMod, GameModeIdx, sizeof(GameModeIdx));
+		AddMenuItem(menu, GameModeIdx, "Zombie Mod");
+	}
+	if (RM_Available)
+	{
+		IntToString(RealismMatch, GameModeIdx, sizeof(GameModeIdx));
+		AddMenuItem(menu, GameModeIdx, "Realism Match");
+	}
+
+	IntToString(Default, GameModeIdx, sizeof(GameModeIdx));
+	AddMenuItem(menu, GameModeIdx, "Default");
+
+	// Dont show exit button and draw vote menu for 20 seconds
+	SetMenuExitButton(menu, false);
+	VoteMenuToAll(menu, 20);
+}
+
+/* VoteMenuHandler()
+ *
+ * Called when a menu action is completed.
+ * ------------------------------------------------------------------------------------- */
+public VoteMenuHandler(Handle:menu, MenuAction:action, client, param)
+{
+	switch (action)
+	{
+		case MenuAction_VoteEnd: // A vote sequence has succeeded!
+		{
+			// Get a mode, percent and amount of votes
+			decl String:display[3], Float:percent, votes, totalVotes, i;
+			GetMenuVoteInfo(param, votes, totalVotes);
+			GetMenuItem(menu, client, display, sizeof(display));
+
+			// Get and set the 'winner' mode
+			switch (StringToInt(display))
+			{
+				case
+					GunGamePure,
+					GunGameFull,
+					GunGameOriginal: SetConVarString(GameMode, "g");
+				case HideAndSeek:    SetConVarString(GameMode, "h");
+				case DeathMatch:     SetConVarString(GameMode, "d");
+				case ZombieMod:      SetConVarString(GameMode, "z");
+				case RealismMatch:   SetConVarString(GameMode, "r");
+				default:             SetConVarString(GameMode, "0");
+			}
+
+			// Get the percent
+			percent = FloatDiv(float(votes), float(totalVotes));
+
+			// Notify everyone
+			PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05%t", "Vote Successful", RoundToNearest(100.0 * percent), totalVotes);
+
+			// Reset amount of votes and 'IsVoted' boolean for everyone
+			for (i = 1; i <= MaxClients; i++)
+				NumVotes = IsVoted[i] = false;
+		}
+		// A vote sequence has been cancelled, or no votes were received
+		case MenuAction_VoteCancel, VoteCancel_NoVotes: PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05%t", "No Votes Cast");
+		case MenuAction_End: CloseHandle(menu); // A menu display has fully ended
+	}
+}
+
 /* OnRoundStart()
  *
  * Called when the new round is started.
@@ -408,7 +639,7 @@ public OnRoundStart(Handle:event, const String:name[], bool:dontBroadcast)
 		}
 
 		// Notify all players about new gameplay
-		PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05Server is now running \x04%s.", gamemodestr);
+		PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05Server is now running \x04%s. \x05If you want to change mode > say \x04!rtm", gamemodestr);
 
 		// Don't show message next time
 		PrintInfoAtStart = false;
@@ -558,6 +789,15 @@ public MenuHandler_GameMode(Handle:menu, MenuAction:action, client, param)
 
 	// We should return a value, so return 0
 	return 0;
+}
+
+/* Timer_AllowVoting)
+ *
+ * Timer to allow RTM votings again
+ * -------------------------------------------------------------------- */
+public Action:Timer_AllowVoting(Handle:timer)
+{
+	CanRockTheMode = true;
 }
 
 /* Timer_RefreshMap()
