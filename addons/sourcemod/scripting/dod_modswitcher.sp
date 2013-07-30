@@ -85,7 +85,7 @@ public Plugin:myinfo =
 {
 	name        = PLUGIN_NAME,
 	author      = "Root",
-	description = "Allows admins to switch game modes (GG, H&S, DM, ZM and Realism) on-the-fly",
+	description = "Allows admins to switch game modes (GG, H&S, DM, ZM and Realism Match) on-the-fly",
 	version     = PLUGIN_VERSION,
 	url         = "http://dodsplugins.com/"
 };
@@ -110,11 +110,11 @@ public OnPluginStart()
 	// Create console variables
 	CreateConVar("dod_modswitcher_version", PLUGIN_VERSION, PLUGIN_NAME, FCVAR_NOTIFY|FCVAR_DONTRECORD);
 	GameMode        = CreateConVar("dod_gamemode",               "",     "Sets the game mode:\n0 = Default\ng = GunGame\nh = Hide & Seek\nd = DeathMatch\nz = Zombie Mod\nr = Realism Match", FCVAR_PLUGIN|FCVAR_DONTRECORD, true, 0.0);
-	SwitchAction    = CreateConVar("dod_gamemode_switch_action", "1",    "Determines an action when game mode has changed (including voting result):\n0 = Round restart\n1 = Map restart",    FCVAR_PLUGIN, true, 0.0, true, 1.0);
-	VoteModeEnabled = CreateConVar("dod_gamemode_vote_enable",   "1",    "Whether or not enable GameMode voting",                                                                             FCVAR_PLUGIN, true, 0.0,  true, 1.0);
-	VoteNeeded      = CreateConVar("dod_gmvote_needed",          "0.60", "Ratio of all players on a server to enable RockTheGameMode",                                                        FCVAR_PLUGIN, true, 0.05, true, 1.0);
-	VoteMinPlayers  = CreateConVar("dod_gmvote_minplayers",      "0",    "Number of minimum players needed to allow RockTheGameMode voting",                                                  FCVAR_PLUGIN, true, 0.0,  true, 33.0);
-	VoteInitDelay   = CreateConVar("dod_gmvote_initialdelay",    "60.0", "Time (in seconds) to wait before first and after next votings",                                                     FCVAR_PLUGIN, true, 0.0);
+	SwitchAction    = CreateConVar("dod_gamemode_switch_action", "1",    "Determines an action when game mode has changed (including voting result):\n0 = Round restart\n1 = Map restart",    FCVAR_PLUGIN, true, 0.0,       true, 1.0);
+	VoteModeEnabled = CreateConVar("dod_gamemode_vote_enable",   "1",    "Whether or not enable GameMode voting",                                                                             FCVAR_PLUGIN, true, 0.0,       true, 1.0);
+	VoteNeeded      = CreateConVar("dod_gmvote_needed",          "0.60", "Ratio of all players on a server to enable RockTheGameMode",                                                        FCVAR_PLUGIN, true, 0.05,      true, 1.0);
+	VoteMinPlayers  = CreateConVar("dod_gmvote_minplayers",      "0",    "Number of minimum players needed to allow RockTheGameMode voting",                                                  FCVAR_PLUGIN, true, 0.0,       true, 33.0);
+	VoteInitDelay   = CreateConVar("dod_gmvote_initialdelay",    "60.0", "Time (in seconds) to wait between calling game mode votings",                                                       FCVAR_PLUGIN, true, 0.0);
 
 	// Hook main ConVar changes to detect selected game modes
 	HookConVarChange(GameMode, UpdateGameMode);
@@ -423,7 +423,7 @@ public OnClientPutInServer(client)
 
 	// Increase available voters per map
 	NumVoters++;
-	VotesNeeded = RoundToFloor(NumVotes * GetConVarFloat(VoteNeeded));
+	VotesNeeded = RoundToFloor(FloatMul(float(NumVotes), GetConVarFloat(VoteNeeded)));
 }
 
 /* OnClientDisconnect()
@@ -443,7 +443,7 @@ public OnClientDisconnect(client)
 	NumVotes--;
 
 	// Also set the required amount of voters for RTM
-	VotesNeeded = RoundToFloor(NumVotes * GetConVarFloat(VoteNeeded));
+	VotesNeeded = RoundToFloor(FloatMul(float(NumVotes), GetConVarFloat(VoteNeeded)));
 }
 
 /* OnSayCommand()
@@ -462,13 +462,13 @@ public Action:OnSayCommand(client, const String:command[], argc)
 
 	// Get all the vote triggers
 	if (StrEqual(text,    "rtm",  false)
-	||  StrEqual(text,    "rtgm", false)
+	//||  StrEqual(text,    "rtgm", false)
 	||  StrEqual(text[1], "rtm",  false) // Including a prefix
-	||  StrEqual(text[1], "rtgm", false) // Like ! or /
+	//||  StrEqual(text[1], "rtgm", false) // Like "! /"
 	||  StrEqual(text,    "rockthemode", false)
-	||  StrEqual(text,    "rockthegamemode", false)
-	||  StrEqual(text[1], "rockthemode", false)
-	||  StrEqual(text[1], "rockthegamemode", false))
+	//||  StrEqual(text,    "rockthegamemode", false)
+	||  StrEqual(text[1], "rockthemode", false))
+	//||  StrEqual(text[1], "rockthegamemode", false))
 	{
 		// Try to vote
 		AttemptGameModeVote(client);
@@ -484,7 +484,7 @@ AttemptGameModeVote(client)
 	// If plugin is enabled or cooldown is not yet expired
 	if (!GetConVarBool(VoteModeEnabled) && !CanRockTheMode)
 	{
-		ReplyToCommand(client, "\x01[\x04Mod Switcher\x01] \x05RockTheGameMode is not allowed at this moment.");
+		ReplyToCommand(client, "\x01[\x04Mod Switcher\x01] \x05RockTheMode is not allowed at this moment.");
 		return;
 	}
 	// Not enough players
@@ -497,7 +497,7 @@ AttemptGameModeVote(client)
 	else if (IsVoted[client])
 	{
 		// Already voted
-		ReplyToCommand(client, "\x01[\x04Mod Switcher\x01] \x05You have already voted (\x04%i\x05 votes received - \x04%i\x05 needed).", NumVotes, VotesNeeded);
+		ReplyToCommand(client, "\x01[\x04Mod Switcher\x01] \x05You have already voted (\x04%i\x05 votes received; \x04%i\x05 needed).", NumVotes, VotesNeeded);
 		return;
 	}
 
@@ -506,7 +506,7 @@ AttemptGameModeVote(client)
 	IsVoted[client] = true;
 
 	// Notify all players that somebody is attemp to change GameMode via voting
-	PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05%N Wants to change game mode (\x04%i\x05 votes received - \x04%i\x05 needed).", client, NumVotes, VotesNeeded);
+	PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05%N Wants to change game mode (\x04%i\x05 votes received; \x04%i\x05 needed).", client, NumVotes, VotesNeeded);
 
 	// Start rockthemode vote if registering the client vote caused the total votes to exceed the needed ratio
 	if (NumVotes >= VotesNeeded)
@@ -530,7 +530,7 @@ StartVoting()
 	// Set menu title
 	SetMenuTitle(menu, "Select Mode:");
 
-	decl String:GameModeIdx[3];
+	decl String:GameModeIdx[2];
 	if (GG_Available)
 	{
 		// If GG is available, add appropriate one into vote menu
@@ -579,7 +579,7 @@ public VoteMenuHandler(Handle:menu, MenuAction:action, client, param)
 		case MenuAction_VoteEnd: // A vote sequence has succeeded!
 		{
 			// Get a mode, percent and amount of votes
-			decl String:display[3], Float:percent, votes, totalVotes, i;
+			decl String:display[2], Float:percent, votes, totalVotes, i;
 			GetMenuVoteInfo(param, votes, totalVotes);
 			GetMenuItem(menu, client, display, sizeof(display));
 
@@ -601,7 +601,7 @@ public VoteMenuHandler(Handle:menu, MenuAction:action, client, param)
 			percent = FloatDiv(float(votes), float(totalVotes));
 
 			// Notify everyone
-			PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05%t", "Vote Successful", RoundToNearest(100.0 * percent), totalVotes);
+			PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05%t", "Vote Successful", RoundToNearest(FloatMul(100.0, percent)), totalVotes);
 
 			// Reset amount of votes and 'IsVoted' boolean for everyone
 			for (i = 1; i <= MaxClients; i++)
@@ -639,7 +639,7 @@ public OnRoundStart(Handle:event, const String:name[], bool:dontBroadcast)
 		}
 
 		// Notify all players about new gameplay
-		PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05Server is now running \x04%s. \x05If you want to change mode > say \x04!rtm", gamemodestr);
+		PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05Server is now running \x04%s. \x05If you dont want to play this, attemp a voting by \x04!rtm \x05command", gamemodestr);
 
 		// Don't show message next time
 		PrintInfoAtStart = false;
@@ -666,7 +666,7 @@ public AdminMenu_SetGameMode(Handle:topmenu, TopMenuAction:action, TopMenuObject
 			ModeSelectHandle = CreateMenu(MenuHandler_GameMode, MenuAction_DrawItem|MenuAction_Select);
 
 			// Set the menu title
-			SetMenuTitle(ModeSelectHandle, "Select Mode");
+			SetMenuTitle(ModeSelectHandle, "Select Mode:");
 
 			decl String:GameModeIdx[2];
 
