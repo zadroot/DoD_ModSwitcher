@@ -5,7 +5,7 @@
 *   Allows admins to switch game modes on-the-fly via menu.
 *   Game modes that switcher supports: GunGame, Hide & Seek, DeathMatch, Zombie Mod and Realism Match Helper.
 *
-* Version 1.1
+* Version 1.2
 * Changelog & more info at http://goo.gl/4nKhJ
 */
 
@@ -19,11 +19,11 @@
 
 // ====[ CONSTANTS ]===================================================
 #define PLUGIN_NAME    "DoD:S Mod Switcher"
-#define PLUGIN_VERSION "1.1"
+#define PLUGIN_VERSION "1.2"
 
 #define DOD_MAXPLAYERS 33
 
-enum // Game Modes defines
+enum // Modes enum
 {
 	GunGamePure,
 	GunGameFull,
@@ -47,7 +47,7 @@ static const String:PluginFileNames[][] =
 	"dod_realismmatch_helper.smx"
 };
 
-// Appropriate configuration files for those plugins
+// Plugin configs
 static const String:PluginConfigFiles[][] =
 {
 	"modswitcher/gungame_pure.cfg",
@@ -433,11 +433,11 @@ public OnClientPutInServer(client)
 public OnClientDisconnect(client)
 {
 	// If player has already voted (or just leave during a vote)
-	if (IsVoted[client])
+	/* if (IsVoted[client])
 	{
 		// Decrease amount of votes
 		NumVotes--;
-	}
+	} */
 
 	// At all
 	NumVotes--;
@@ -464,7 +464,7 @@ public Action:OnSayCommand(client, const String:command[], argc)
 	if (StrEqual(text,    "rtm",  false)
 	//||  StrEqual(text,    "rtgm", false)
 	||  StrEqual(text[1], "rtm",  false) // Including a prefix
-	//||  StrEqual(text[1], "rtgm", false) // Like "! /"
+	//||  StrEqual(text[1], "rtgm", false)
 	||  StrEqual(text,    "rockthemode", false)
 	//||  StrEqual(text,    "rockthegamemode", false)
 	||  StrEqual(text[1], "rockthemode", false))
@@ -484,20 +484,20 @@ AttemptGameModeVote(client)
 	// If plugin is enabled or cooldown is not yet expired
 	if (!GetConVarBool(VoteModeEnabled) && !CanRockTheMode)
 	{
-		ReplyToCommand(client, "\x01[\x04Mod Switcher\x01] \x05RockTheMode is not allowed at this moment.");
+		PrintToChat(client, "\x01[\x04Mod Switcher\x01] \x05RockTheMode is not allowed at this moment.");
 		return;
 	}
 	// Not enough players
-	else if (GetClientCount(true) < GetConVarInt(VoteMinPlayers))
+	if (GetClientCount(true) < GetConVarInt(VoteMinPlayers))
 	{
 		// Notify player
-		ReplyToCommand(client, "\x01[\x04Mod Switcher\x01] \x05Not enough players to enable a vote.");
+		PrintToChat(client, "\x01[\x04Mod Switcher\x01] \x05Not enough players to enable a vote.");
 		return;
 	}
-	else if (IsVoted[client])
+	if (IsVoted[client])
 	{
 		// Already voted
-		ReplyToCommand(client, "\x01[\x04Mod Switcher\x01] \x05You have already voted (\x04%i\x05 votes received; \x04%i\x05 needed).", NumVotes, VotesNeeded);
+		PrintToChat(client, "\x01[\x04Mod Switcher\x01] \x05You have already voted (\x04%i\x05 votes received; \x04%i\x05 needed).", NumVotes, VotesNeeded);
 		return;
 	}
 
@@ -639,7 +639,7 @@ public OnRoundStart(Handle:event, const String:name[], bool:dontBroadcast)
 		}
 
 		// Notify all players about new gameplay
-		PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05Server is now running \x04%s. \x05If you dont want to play this, attemp a voting by \x04!rtm \x05command", gamemodestr);
+		PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05Server is now running \x04%s. \x05To attemp game mode voting, say \x04!rtm", gamemodestr);
 
 		// Don't show message next time
 		PrintInfoAtStart = false;
