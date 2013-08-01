@@ -9,6 +9,8 @@
 * Changelog & more info at http://goo.gl/4nKhJ
 */
 
+#pragma semicolon 1
+
 // Make "adminmenu" plugin as optional
 #undef REQUIRE_PLUGIN
 #include <adminmenu>
@@ -111,15 +113,13 @@ public OnPluginStart()
 	CreateConVar("dod_modswitcher_version", PLUGIN_VERSION, PLUGIN_NAME, FCVAR_NOTIFY|FCVAR_DONTRECORD);
 	GameMode        = CreateConVar("dod_gamemode",               "",     "Sets the game mode:\n0 = Default\ng = GunGame\nh = Hide & Seek\nd = DeathMatch\nz = Zombie Mod\nr = Realism Match", FCVAR_PLUGIN|FCVAR_DONTRECORD, true, 0.0);
 	SwitchAction    = CreateConVar("dod_gamemode_switch_action", "1",    "Determines an action when game mode has changed (including voting result):\n0 = Round restart\n1 = Map restart",    FCVAR_PLUGIN, true, 0.0,       true, 1.0);
-	VoteModeEnabled = CreateConVar("dod_gamemode_vote_enable",   "1",    "Whether or not enable GameMode voting",                                                                             FCVAR_PLUGIN, true, 0.0,       true, 1.0);
-	VoteNeeded      = CreateConVar("dod_gmvote_needed",          "0.60", "Ratio of all players on a server to enable RockTheGameMode",                                                        FCVAR_PLUGIN, true, 0.05,      true, 1.0);
-	VoteMinPlayers  = CreateConVar("dod_gmvote_minplayers",      "0",    "Number of minimum players needed to allow RockTheGameMode voting",                                                  FCVAR_PLUGIN, true, 0.0,       true, 33.0);
+	VoteModeEnabled = CreateConVar("dod_gamemode_vote_enable",   "1",    "Whether or not enable game mode votings",                                                                           FCVAR_PLUGIN, true, 0.0,       true, 1.0);
+	VoteNeeded      = CreateConVar("dod_gmvote_needed",          "0.60", "Ratio of all players on a server to enable game mode voting",                                                       FCVAR_PLUGIN, true, 0.05,      true, 1.0);
+	VoteMinPlayers  = CreateConVar("dod_gmvote_minplayers",      "0",    "Number of minimum players needed to allow game mode voting",                                                        FCVAR_PLUGIN, true, 0.0,       true, 33.0);
 	VoteInitDelay   = CreateConVar("dod_gmvote_initialdelay",    "60.0", "Time (in seconds) to wait between calling game mode votings",                                                       FCVAR_PLUGIN, true, 0.0);
 
 	// Hook main ConVar changes to detect selected game modes
 	HookConVarChange(GameMode, UpdateGameMode);
-
-	// It's better to make convar handle as a global one
 	mp_restartwarmup = FindConVar("mp_restartwarmup");
 
 	// Need to notify players about changed gameplay
@@ -134,7 +134,7 @@ public OnPluginStart()
 	LoadTranslations("common.phrases");
 
 	// Create modswitcher config in appropriate folder
-	AutoExecConfig(true, "dod_modswitcher", "modswitcher");
+	AutoExecConfig(true, "modswitcher_config", "modswitcher");
 }
 
 /* OnAllPluginsLoaded()
@@ -423,7 +423,7 @@ public OnClientPutInServer(client)
 
 	// Increase available voters per map
 	NumVoters++;
-	VotesNeeded = RoundToFloor(FloatMul(float(NumVotes), GetConVarFloat(VoteNeeded)));
+	VotesNeeded = RoundToFloor(FloatMul(float(NumVoters), GetConVarFloat(VoteNeeded)));
 }
 
 /* OnClientDisconnect()
@@ -433,17 +433,17 @@ public OnClientPutInServer(client)
 public OnClientDisconnect(client)
 {
 	// If player has already voted (or just leave during a vote)
-	/* if (IsVoted[client])
+	if (IsVoted[client])
 	{
 		// Decrease amount of votes
 		NumVotes--;
-	} */
+	}
 
-	// At all
-	NumVotes--;
+	// And voteRs
+	NumVoters--;
 
 	// Also set the required amount of voters for RTM
-	VotesNeeded = RoundToFloor(FloatMul(float(NumVotes), GetConVarFloat(VoteNeeded)));
+	VotesNeeded = RoundToFloor(FloatMul(float(NumVoters), GetConVarFloat(VoteNeeded)));
 }
 
 /* OnSayCommand()
@@ -481,17 +481,17 @@ public Action:OnSayCommand(client, const String:command[], argc)
  * -------------------------------------------------------------------- */
 AttemptGameModeVote(client)
 {
-	// If plugin is enabled or cooldown is not yet expired
+	// Plugin is disabled or cooldown is not yet expired
 	if (!GetConVarBool(VoteModeEnabled) && !CanRockTheMode)
 	{
-		PrintToChat(client, "\x01[\x04Mod Switcher\x01] \x05RockTheMode is not allowed at this moment.");
+		PrintToChat(client, "\x01[\x04Mod Switcher\x01] \x05RockTheMode is not yet allowed.");
 		return;
 	}
 	// Not enough players
 	if (GetClientCount(true) < GetConVarInt(VoteMinPlayers))
 	{
 		// Notify player
-		PrintToChat(client, "\x01[\x04Mod Switcher\x01] \x05Not enough players to enable a vote.");
+		PrintToChat(client, "\x01[\x04Mod Switcher\x01] \x05Not enough players to attempt a vote.");
 		return;
 	}
 	if (IsVoted[client])
@@ -501,17 +501,17 @@ AttemptGameModeVote(client)
 		return;
 	}
 
-	// Otherwise increase amount of votes and register player vote itself
+	// Otherwise increase amount of votes and register player vote
 	NumVotes++;
 	IsVoted[client] = true;
 
-	// Notify all players that somebody is attemp to change GameMode via voting
+	// Notify all players that somebody is attemp to call a vote to change game mode
 	PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05%N Wants to change game mode (\x04%i\x05 votes received; \x04%i\x05 needed).", client, NumVotes, VotesNeeded);
 
-	// Start rockthemode vote if registering the client vote caused the total votes to exceed the needed ratio
+	// Start the game mode vote if registering the client vote caused the total votes to exceed the needed ratio
 	if (NumVotes >= VotesNeeded)
 	{
-		// Start voting and set appropriate things
+		// Start voting and cooldown
 		StartVoting();
 		CanRockTheMode = false;
 		CreateTimer(GetConVarFloat(VoteInitDelay), Timer_AllowVoting, _, TIMER_FLAG_NO_MAPCHANGE);
@@ -524,7 +524,7 @@ AttemptGameModeVote(client)
  * -------------------------------------------------------------------- */
 StartVoting()
 {
-	// Create menu with all actions (including vote actions)
+	// Create menu with all available actions (including vote actions)
 	new Handle:menu = CreateMenu(VoteMenuHandler, MenuAction:MENU_ACTIONS_ALL);
 
 	// Set menu title
@@ -603,7 +603,7 @@ public VoteMenuHandler(Handle:menu, MenuAction:action, client, param)
 			// Notify everyone
 			PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05%t", "Vote Successful", RoundToNearest(FloatMul(100.0, percent)), totalVotes);
 
-			// Reset amount of votes and 'IsVoted' boolean for everyone
+			// Reset amount of votes and set vote boolean for everyone
 			for (i = 1; i <= MaxClients; i++)
 				NumVotes = IsVoted[i] = false;
 		}
@@ -639,7 +639,7 @@ public OnRoundStart(Handle:event, const String:name[], bool:dontBroadcast)
 		}
 
 		// Notify all players about new gameplay
-		PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05Server is now running \x04%s. \x05To attemp game mode voting, say \x04!rtm", gamemodestr);
+		PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05Server is now running \x04%s. \x05To attempt game mode voting, say \x04!rtm after %i seconds", gamemodestr, GetConVarInt(VoteInitDelay));
 
 		// Don't show message next time
 		PrintInfoAtStart = false;
