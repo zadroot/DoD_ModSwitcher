@@ -5,7 +5,7 @@
 *   Allows admins to switch game modes on-the-fly via menu.
 *   Game modes that switcher supports: GunGame, Hide & Seek, DeathMatch, Zombie Mod and Realism Match Helper.
 *
-* Version 1.2
+* Version 1.3
 * Changelog & more info at http://goo.gl/4nKhJ
 */
 
@@ -21,7 +21,7 @@
 
 // ====[ CONSTANTS ]===================================================
 #define PLUGIN_NAME    "DoD:S Mod Switcher"
-#define PLUGIN_VERSION "1.2"
+#define PLUGIN_VERSION "1.3"
 
 #define DOD_MAXPLAYERS 33
 
@@ -70,13 +70,13 @@ new	bool:GG_Available, bool:GG_Loaded,
 
 new	Handle:AdminMenuHandle  = INVALID_HANDLE,
 	Handle:ModeSelectHandle = INVALID_HANDLE,
-	Handle:mp_restartwarmup = INVALID_HANDLE,
 	Handle:GameMode         = INVALID_HANDLE,
 	Handle:SwitchAction     = INVALID_HANDLE,
 	Handle:VoteModeEnabled  = INVALID_HANDLE,
 	Handle:VoteMinPlayers   = INVALID_HANDLE,
 	Handle:VoteInitDelay    = INVALID_HANDLE,
 	Handle:VoteNeeded       = INVALID_HANDLE,
+	Handle:mp_restartwarmup = INVALID_HANDLE,
 	GunGameVersion          = -1,
 	NumVoters, NumVotes, VotesNeeded,
 	bool:IsVoted[DOD_MAXPLAYERS + 1],
@@ -124,10 +124,6 @@ public OnPluginStart()
 
 	// Need to notify players about changed gameplay
 	HookEvent("dod_round_active", OnRoundStart, EventHookMode_PostNoCopy);
-
-	// For !rtm !rtgm and other chat triggers
-	AddCommandListener(OnSayCommand, "say");
-	AddCommandListener(OnSayCommand, "say_team");
 
 	// "No votes cast" / "Vote successfull phrases"
 	LoadTranslations("basevotes.phrases");
@@ -446,31 +442,19 @@ public OnClientDisconnect(client)
 	VotesNeeded = RoundToFloor(FloatMul(float(NumVoters), GetConVarFloat(VoteNeeded)));
 }
 
-/* OnSayCommand()
+/* OnClientSayCommand_Post()
  *
- * Called when say commands are used.
+ * Called when a client says something;
  * -------------------------------------------------------------------- */
-public Action:OnSayCommand(client, const String:command[], argc)
+public OnClientSayCommand_Post(client, const String:command[], const String:text[])
 {
-	decl String:text[16];
-
-	// Retrieves argument string from the command (i.e. sended message)
-	GetCmdArgString(text, sizeof(text));
-
-	// Remove quotes from the argument (or triggers will never be detected)
-	StripQuotes(text);
-
-	// Get all the vote triggers
-	if (StrEqual(text,    "rtm",  false)
-	//||  StrEqual(text,    "rtgm", false)
-	||  StrEqual(text[1], "rtm",  false) // Including a prefix
-	//||  StrEqual(text[1], "rtgm", false)
-	||  StrEqual(text,    "rockthemode", false)
-	//||  StrEqual(text,    "rockthegamemode", false)
-	||  StrEqual(text[1], "rockthemode", false))
-	//||  StrEqual(text[1], "rockthegamemode", false))
+	// Check for triggers
+	if (StrEqual(text[1], "rtm",  false)
+	||  StrEqual(text[2], "rtm",  false) // With a prefix
+	||  StrEqual(text[1], "rockthemode", false)
+	||  StrEqual(text[2], "rockthemode", false))
 	{
-		// Try to vote
+		// Try to RTM
 		AttemptGameModeVote(client);
 	}
 }
@@ -482,7 +466,7 @@ public Action:OnSayCommand(client, const String:command[], argc)
 AttemptGameModeVote(client)
 {
 	// Plugin is disabled or cooldown is not yet expired
-	if (!GetConVarBool(VoteModeEnabled) && !CanRockTheMode)
+	if (!GetConVarBool(VoteModeEnabled) || !CanRockTheMode)
 	{
 		PrintToChat(client, "\x01[\x04Mod Switcher\x01] \x05RockTheMode is not yet allowed.");
 		return;
@@ -639,7 +623,7 @@ public OnRoundStart(Handle:event, const String:name[], bool:dontBroadcast)
 		}
 
 		// Notify all players about new gameplay
-		PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05Server is now running \x04%s. \x05To attempt game mode voting, say \x04!rtm after %i seconds", gamemodestr, GetConVarInt(VoteInitDelay));
+		PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05Server is now running \x04%s. \x05To attempt game mode voting, say \x04!rtm \x05after %i seconds", gamemodestr, GetConVarInt(VoteInitDelay));
 
 		// Don't show message next time
 		PrintInfoAtStart = false;
@@ -654,12 +638,8 @@ public AdminMenu_SetGameMode(Handle:topmenu, TopMenuAction:action, TopMenuObject
 {
 	switch (action)
 	{
-		// Display Menu selection item
-		case TopMenuAction_DisplayOption:
-		{
-			// A name of the 'ServerCommands' category
-			Format(buffer, maxlength, "Set Game Mode");
-		}
+		// Add
+		case TopMenuAction_DisplayOption: Format(buffer, maxlength, "Set Game Mode");
 		case TopMenuAction_SelectOption:
 		{
 			// Create topmenu handler for 'Select Mode' section
