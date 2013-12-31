@@ -40,8 +40,8 @@ enum // Modes enum
 // Names of the supported plugins to search
 static const String:PluginFileNames[][] =
 {
-	"dod_gungame4.2pure.smx",
-	"dod_gungame4.2.smx",
+	"dod_gungame4.3pure.smx",
+	"dod_gungame4.3.smx",
 	"dod_gungame.smx",
 	"sm_hidenseek.smx",
 	"dod_deathmatch.smx",
