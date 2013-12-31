@@ -5,7 +5,7 @@
 *   Allows admins to switch game modes on-the-fly via menu.
 *   Game modes that switcher supports: GunGame, Hide & Seek, DeathMatch, Zombie Mod and Realism Match Helper.
 *
-* Version 1.3
+* Version 1.4
 * Changelog & more info at http://goo.gl/4nKhJ
 */
 
@@ -21,7 +21,7 @@
 
 // ====[ CONSTANTS ]===================================================
 #define PLUGIN_NAME    "DoD:S Mod Switcher"
-#define PLUGIN_VERSION "1.3"
+#define PLUGIN_VERSION "1.4"
 
 #define DOD_MAXPLAYERS 33
 
@@ -34,6 +34,7 @@ enum // Modes enum
 	DeathMatch,
 	ZombieMod,
 	RealismMatch,
+	AlienVSPredator, // AVP beta
 	Default
 };
 
@@ -46,7 +47,8 @@ static const String:PluginFileNames[][] =
 	"sm_hidenseek.smx",
 	"dod_deathmatch.smx",
 	"dod_zombiemod.smx",
-	"dod_realismmatch_helper.smx"
+	"dod_realismmatch_helper.smx",
+	"dod_avp_predatormod2.5.smx" // AVP beta
 };
 
 // Plugin configs
@@ -58,7 +60,8 @@ static const String:PluginConfigFiles[][] =
 	"modswitcher/hideandseek.cfg",
 	"modswitcher/deathmatch.cfg",
 	"modswitcher/zombiemod.cfg",
-	"modswitcher/realismmatch.cfg"
+	"modswitcher/realismmatch.cfg",
+	"modswitcher/alienvspredator.cfg" // AVP beta
 };
 
 // ====[ VARIABLES ]===================================================
@@ -66,7 +69,8 @@ new	bool:GG_Available, bool:GG_Loaded,
 	bool:HS_Available, bool:HS_Loaded,
 	bool:DM_Available, bool:DM_Loaded,
 	bool:ZM_Available, bool:ZM_Loaded,
-	bool:RM_Available, bool:RM_Loaded;
+	bool:RM_Available, bool:RM_Loaded,
+	bool:AP_Available, bool:AP_Loaded; // AVP beta
 
 new	Handle:AdminMenuHandle  = INVALID_HANDLE,
 	Handle:ModeSelectHandle = INVALID_HANDLE,
@@ -87,7 +91,7 @@ public Plugin:myinfo =
 {
 	name        = PLUGIN_NAME,
 	author      = "Root",
-	description = "Allows admins to switch game modes (GG, H&S, DM, ZM and Realism Match) on-the-fly",
+	description = "Allows admins to switch game modes (GG, H&S, DM, ZM, AVP and Realism Match) on-the-fly",
 	version     = PLUGIN_VERSION,
 	url         = "http://dodsplugins.com/"
 };
@@ -111,12 +115,12 @@ public OnPluginStart()
 {
 	// Create console variables
 	CreateConVar("dod_modswitcher_version", PLUGIN_VERSION, PLUGIN_NAME, FCVAR_NOTIFY|FCVAR_DONTRECORD);
-	GameMode        = CreateConVar("dod_gamemode",               "",     "Sets the game mode:\n0 = Default\ng = GunGame\nh = Hide & Seek\nd = DeathMatch\nz = Zombie Mod\nr = Realism Match", FCVAR_PLUGIN|FCVAR_DONTRECORD, true, 0.0);
-	SwitchAction    = CreateConVar("dod_gamemode_switch_action", "1",    "Determines an action when game mode has changed (including voting result):\n0 = Round restart\n1 = Map restart",    FCVAR_PLUGIN, true, 0.0,       true, 1.0);
-	VoteModeEnabled = CreateConVar("dod_gamemode_vote_enable",   "1",    "Whether or not enable game mode votings",                                                                           FCVAR_PLUGIN, true, 0.0,       true, 1.0);
-	VoteNeeded      = CreateConVar("dod_gmvote_needed",          "0.60", "Ratio of all players on a server to enable game mode voting",                                                       FCVAR_PLUGIN, true, 0.05,      true, 1.0);
-	VoteMinPlayers  = CreateConVar("dod_gmvote_minplayers",      "0",    "Number of minimum players needed to allow game mode voting",                                                        FCVAR_PLUGIN, true, 0.0,       true, 33.0);
-	VoteInitDelay   = CreateConVar("dod_gmvote_initialdelay",    "60.0", "Time (in seconds) to wait between calling game mode votings",                                                       FCVAR_PLUGIN, true, 0.0);
+	GameMode        = CreateConVar("dod_gamemode",               "",     "Sets the game mode:\n0 = Default\ng = GunGame\nh = Hide & Seek\nd = DeathMatch\nz = Zombie Mod\nr = Realism Match\na = AVP", FCVAR_PLUGIN|FCVAR_DONTRECORD, true, 0.0);
+	SwitchAction    = CreateConVar("dod_gamemode_switch_action", "1",    "Determines an action when game mode has changed (including voting result):\n0 = Round restart\n1 = Map restart",             FCVAR_PLUGIN, true, 0.0,       true, 1.0);
+	VoteModeEnabled = CreateConVar("dod_gamemode_vote_enable",   "1",    "Whether or not enable game mode votings",                                                                                    FCVAR_PLUGIN, true, 0.0,       true, 1.0);
+	VoteNeeded      = CreateConVar("dod_gmvote_needed",          "0.60", "Ratio of all players on a server to enable game mode voting",                                                                FCVAR_PLUGIN, true, 0.05,      true, 1.0);
+	VoteMinPlayers  = CreateConVar("dod_gmvote_minplayers",      "0",    "Number of minimum players needed to allow game mode voting",                                                                 FCVAR_PLUGIN, true, 0.0,       true, 33.0);
+	VoteInitDelay   = CreateConVar("dod_gmvote_initialdelay",    "60.0", "Time (in seconds) to wait between calling game mode votings",                                                                FCVAR_PLUGIN, true, 0.0);
 
 	// Hook main ConVar changes to detect selected game modes
 	HookConVarChange(GameMode, UpdateGameMode);
@@ -221,6 +225,14 @@ public OnAllPluginsLoaded()
 	{
 		RM_Available = true;
 	}
+
+	// AVP beta
+	decl String:AP[PLATFORM_MAX_PATH];
+	BuildPath(Path_SM, AP, sizeof(AP), "plugins/optional/%s", PluginFileNames[AlienVSPredator]);
+	if (FileExists(AP))
+	{
+		AP_Available = true;
+	}
 }
 
 /* OnAllPluginsLoaded()
@@ -229,11 +241,11 @@ public OnAllPluginsLoaded()
  * -------------------------------------------------------------------- */
 public OnAutoConfigsBuffered()
 {
-	// Delay to voting
-	CreateTimer(GetConVarFloat(VoteInitDelay), Timer_AllowVoting, _, TIMER_FLAG_NO_MAPCHANGE);
-
 	// Reset everything
 	NumVoters = NumVotes = VotesNeeded = CanRockTheMode = false;
+
+	// Delay to voting
+	CreateTimer(GetConVarFloat(VoteInitDelay), Timer_AllowVoting, _, TIMER_FLAG_NO_MAPCHANGE);
 
 	// If any mod is running atm, exec specified config after mapchange
 	if (GG_Loaded)
@@ -259,6 +271,11 @@ public OnAutoConfigsBuffered()
 	{
 		// Then mod-specified config would load at every mapchange (didnt it?)
 		ServerCommand("exec %s", PluginConfigFiles[RealismMatch]);
+	}
+	else if (AP_Loaded)
+	{
+		// AVP beta
+		ServerCommand("exec %s", PluginConfigFiles[AlienVSPredator]);
 	}
 }
 
@@ -326,6 +343,12 @@ public UpdateGameMode(Handle:convar, const String:oldValue[], const String:newVa
 		RM_Loaded = false;
 		UnloadPlugin(RealismMatch);
 	}
+	else if (AP_Loaded)
+	{
+		// AVP beta
+		AP_Loaded = false;
+		UnloadPlugin(AlienVSPredator);
+	}
 
 	// I dont like to convert string to an integer. And I also dont like comparing with old value; Well is not necessary here
 	switch (newValue[0])
@@ -374,6 +397,15 @@ public UpdateGameMode(Handle:convar, const String:oldValue[], const String:newVa
 
 				// And finally load the plugin
 				LoadPlugin(RealismMatch);
+			}
+		}
+		case 'a': // Alien VS Predator
+		{
+			if (AP_Available)
+			{
+				// AVP beta
+				AP_Loaded = true;
+				LoadPlugin(AlienVSPredator);
 			}
 		}
 
@@ -446,13 +478,20 @@ public OnClientDisconnect(client)
  *
  * Called when a client says something;
  * -------------------------------------------------------------------- */
-public OnClientSayCommand_Post(client, const String:command[], const String:text[])
+public OnClientSayCommand_Post(client, const String:command[], const String:sArgs[])
 {
+	decl String:text[16];
+
+	// Copy original message
+	strcopy(text, sizeof(text), sArgs);
+
+	// Remove quotes from destination string, otherwise indexes will never be detected
+	StripQuotes(text);
+
 	// Check for triggers
-	if (StrEqual(text[1], "rtm",  false)
-	||  StrEqual(text[2], "rtm",  false) // With a prefix
-	||  StrEqual(text[1], "rockthemode", false)
-	||  StrEqual(text[2], "rockthemode", false))
+	if (StrEqual(text[1], "rtm",  false) || StrEqual(text[1], "rockthemode",  false)
+	||  StrEqual(text[1], "!rtm", false) || StrEqual(text[1], "!rockthemode", false)
+	||  StrEqual(text[1], "/rtm", false) || StrEqual(text[1], "/rockthemode", false))
 	{
 		// Try to RTM
 		AttemptGameModeVote(client);
@@ -543,6 +582,12 @@ StartVoting()
 		IntToString(RealismMatch, GameModeIdx, sizeof(GameModeIdx));
 		AddMenuItem(menu, GameModeIdx, "Realism Match");
 	}
+	if (AP_Available)
+	{
+		// AVP beta
+		IntToString(AlienVSPredator, GameModeIdx, sizeof(GameModeIdx));
+		AddMenuItem(menu, GameModeIdx, "Alien VS Predator");
+	}
 
 	IntToString(Default, GameModeIdx, sizeof(GameModeIdx));
 	AddMenuItem(menu, GameModeIdx, "Default");
@@ -573,12 +618,13 @@ public VoteMenuHandler(Handle:menu, MenuAction:action, client, param)
 				case
 					GunGamePure,
 					GunGameFull,
-					GunGameOriginal: SetConVarString(GameMode, "g");
-				case HideAndSeek:    SetConVarString(GameMode, "h");
-				case DeathMatch:     SetConVarString(GameMode, "d");
-				case ZombieMod:      SetConVarString(GameMode, "z");
-				case RealismMatch:   SetConVarString(GameMode, "r");
-				default:             SetConVarString(GameMode, "0");
+					GunGameOriginal:  SetConVarString(GameMode, "g");
+				case HideAndSeek:     SetConVarString(GameMode, "h");
+				case DeathMatch:      SetConVarString(GameMode, "d");
+				case ZombieMod:       SetConVarString(GameMode, "z");
+				case RealismMatch:    SetConVarString(GameMode, "r");
+				case AlienVSPredator: SetConVarString(GameMode, "a"); // AVP beta
+				default:              SetConVarString(GameMode, "0");
 			}
 
 			// Get the percent
@@ -619,6 +665,7 @@ public OnRoundStart(Handle:event, const String:name[], bool:dontBroadcast)
 			case 'd': FormatEx(gamemodestr, sizeof(gamemodestr), "DeathMatch");
 			case 'z': FormatEx(gamemodestr, sizeof(gamemodestr), "Zombie Mod");
 			case 'r': FormatEx(gamemodestr, sizeof(gamemodestr), "Realism Match");
+			case 'a': FormatEx(gamemodestr, sizeof(gamemodestr), "Alien VS Predator"); // AVP beta
 			default:  FormatEx(gamemodestr, sizeof(gamemodestr), "default gamemode");
 		}
 
@@ -678,6 +725,12 @@ public AdminMenu_SetGameMode(Handle:topmenu, TopMenuAction:action, TopMenuObject
 				IntToString(RealismMatch, GameModeIdx, sizeof(GameModeIdx));
 				AddMenuItem(ModeSelectHandle, GameModeIdx, "Realism Match");
 			}
+			if (AP_Available)
+			{
+				// AVP beta
+				IntToString(AlienVSPredator, GameModeIdx, sizeof(GameModeIdx));
+				AddMenuItem(ModeSelectHandle, GameModeIdx, "Alien VS Predator");
+			}
 
 			// Also dont forget to add 'default gameplay' item into menu
 			IntToString(Default, GameModeIdx, sizeof(GameModeIdx));
@@ -714,19 +767,21 @@ public MenuHandler_GameMode(Handle:menu, MenuAction:action, client, param)
 				// Gungame mode is about to be displayed
 				case
 					GunGamePure,
-					GunGameFull,     // If GunGame is loaded, dont allow player to select it once again
-					GunGameOriginal: return (GG_Loaded) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT;
-				case HideAndSeek:    return (HS_Loaded) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT;
-				case DeathMatch:     return (DM_Loaded) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT;
-				case ZombieMod:      return (ZM_Loaded) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT;
-				case RealismMatch:   return (RM_Loaded) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT;
+					GunGameFull,
+					GunGameOriginal:  return (GG_Loaded) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT;
+				case HideAndSeek:     return (HS_Loaded) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT;
+				case DeathMatch:      return (DM_Loaded) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT;
+				case ZombieMod:       return (ZM_Loaded) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT;
+				case RealismMatch:    return (RM_Loaded) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT;
+				case AlienVSPredator: return (AP_Loaded) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT; // AVP beta
 				default:
 				{
 					if (!GG_Loaded
 					&&  !HS_Loaded
 					&&  !DM_Loaded
 					&&  !ZM_Loaded
-					&&  !RM_Loaded)
+					&&  !RM_Loaded
+					&&  !AP_Loaded) // AVP beta
 					{
 						// However if no mods were loaded, do the same with visibility 'Default gamemode' category
 						return ITEMDRAW_DISABLED;
@@ -751,12 +806,13 @@ public MenuHandler_GameMode(Handle:menu, MenuAction:action, client, param)
 				case
 					GunGamePure,
 					GunGameFull,
-					GunGameOriginal: SetConVarString(GameMode, "g");
-				case HideAndSeek:    SetConVarString(GameMode, "h");
-				case DeathMatch:     SetConVarString(GameMode, "d");
-				case ZombieMod:      SetConVarString(GameMode, "z");
-				case RealismMatch:   SetConVarString(GameMode, "r");
-				default:             SetConVarString(GameMode, "0");
+					GunGameOriginal:  SetConVarString(GameMode, "g");
+				case HideAndSeek:     SetConVarString(GameMode, "h");
+				case DeathMatch:      SetConVarString(GameMode, "d");
+				case ZombieMod:       SetConVarString(GameMode, "z");
+				case RealismMatch:    SetConVarString(GameMode, "r");
+				case AlienVSPredator: SetConVarString(GameMode, "a"); // AVP beta
+				default:              SetConVarString(GameMode, "0");
 			}
 		}
 
