@@ -9,8 +9,6 @@
 * Changelog & more info at http://goo.gl/4nKhJ
 */
 
-#pragma semicolon 1
-
 // Make "adminmenu" plugin as optional
 #undef REQUIRE_PLUGIN
 #include <adminmenu>
@@ -84,8 +82,7 @@ new	Handle:AdminMenuHandle  = INVALID_HANDLE,
 	GunGameVersion          = -1,
 	NumVoters, NumVotes, VotesNeeded,
 	bool:IsVoted[DOD_MAXPLAYERS + 1],
-	bool:CanRockTheMode,
-	bool:PrintInfoAtStart;
+	bool:CanRockTheMode, bool:PrintInfoAtStart;
 
 public Plugin:myinfo =
 {
@@ -94,7 +91,7 @@ public Plugin:myinfo =
 	description = "Allows admins to switch game modes (GG, H&S, DM, ZM, AVP and Realism Match) on-the-fly",
 	version     = PLUGIN_VERSION,
 	url         = "http://dodsplugins.com/"
-};
+}
 
 
 /* AskPluginLoad2()
@@ -298,7 +295,7 @@ public OnAdminMenuReady(Handle:topmenu)
 
 	if (server_commands == INVALID_TOPMENUOBJECT)
 	{
-		// Error!
+		// return!
 		return;
 	}
 
@@ -434,7 +431,7 @@ public UpdateGameMode(Handle:convar, const String:oldValue[], const String:newVa
 	}
 
 	// If map should be changed, create 3-second timer and just refresh the current map (to accept all plugin hooks)
-	if (GetConVarInt(SwitchAction))
+	if (GetConVarBool(SwitchAction))
 	{
 		CreateTimer(3.0, Timer_RefreshMap, _, TIMER_FLAG_NO_MAPCHANGE);
 	}
@@ -480,18 +477,10 @@ public OnClientDisconnect(client)
  * -------------------------------------------------------------------- */
 public OnClientSayCommand_Post(client, const String:command[], const String:sArgs[])
 {
-	decl String:text[16];
-
-	// Copy original message
-	strcopy(text, sizeof(text), sArgs);
-
-	// Remove quotes from destination string, otherwise indexes will never be detected
-	StripQuotes(text);
-
-	// Check for triggers
-	if (StrEqual(text[1], "rtm",  false) || StrEqual(text[1], "rockthemode",  false)
-	||  StrEqual(text[1], "!rtm", false) || StrEqual(text[1], "!rockthemode", false)
-	||  StrEqual(text[1], "/rtm", false) || StrEqual(text[1], "/rockthemode", false))
+	// OnClientSayCommand_Post is dont have last quote, so we can just ignore first one and compare triggers
+	if (StrEqual(sArgs[1], "rtm",  false) || StrEqual(sArgs[1], "rockthemode",  false)
+	||  StrEqual(sArgs[1], "!rtm", false) || StrEqual(sArgs[1], "!rockthemode", false)
+	||  StrEqual(sArgs[1], "/rtm", false) || StrEqual(sArgs[1], "/rockthemode", false))
 	{
 		// Try to RTM
 		AttemptGameModeVote(client);
@@ -510,6 +499,7 @@ AttemptGameModeVote(client)
 		PrintToChat(client, "\x01[\x04Mod Switcher\x01] \x05RockTheMode is not yet allowed.");
 		return;
 	}
+
 	// Not enough players
 	if (GetClientCount(true) < GetConVarInt(VoteMinPlayers))
 	{
@@ -517,9 +507,10 @@ AttemptGameModeVote(client)
 		PrintToChat(client, "\x01[\x04Mod Switcher\x01] \x05Not enough players to attempt a vote.");
 		return;
 	}
+
+	// Player has already voted, dont allow to attemp vote again
 	if (IsVoted[client])
 	{
-		// Already voted
 		PrintToChat(client, "\x01[\x04Mod Switcher\x01] \x05You have already voted (\x04%i\x05 votes received; \x04%i\x05 needed).", NumVotes, VotesNeeded);
 		return;
 	}
@@ -550,7 +541,7 @@ StartVoting()
 	// Create menu with all available actions (including vote actions)
 	new Handle:menu = CreateMenu(VoteMenuHandler, MenuAction:MENU_ACTIONS_ALL);
 
-	// Set menu title
+	// Set the menu title
 	SetMenuTitle(menu, "Select Mode:");
 
 	decl String:GameModeIdx[2];
@@ -635,7 +626,9 @@ public VoteMenuHandler(Handle:menu, MenuAction:action, client, param)
 
 			// Reset amount of votes and set vote boolean for everyone
 			for (i = 1; i <= MaxClients; i++)
+			{
 				NumVotes = IsVoted[i] = false;
+			}
 		}
 		// A vote sequence has been cancelled, or no votes were received
 		case MenuAction_VoteCancel, VoteCancel_NoVotes: PrintToChatAll("\x01[\x04Mod Switcher\x01] \x05%t", "No Votes Cast");
@@ -741,6 +734,7 @@ public AdminMenu_SetGameMode(Handle:topmenu, TopMenuAction:action, TopMenuObject
 
 			// And display menu as long as possible
 			DisplayMenu(ModeSelectHandle, param, MENU_TIME_FOREVER);
+			SetMenuPagination(ModeSelectHandle, MENU_NO_PAGINATION); // Don't paginate list of mods in menu
 		}
 	}
 }
@@ -796,7 +790,7 @@ public MenuHandler_GameMode(Handle:menu, MenuAction:action, client, param)
 		// An item was selected
 		case MenuAction_Select:
 		{
-			// Why? Because every mode has unique index in menu - so lets select mod corectly
+			// Because every mode has unique index in menu - so lets select mod corectly
 			decl String:display[2];
 			GetMenuItem(menu, param, display, sizeof(display));
 
@@ -823,7 +817,7 @@ public MenuHandler_GameMode(Handle:menu, MenuAction:action, client, param)
 		}
 	}
 
-	// We should return a value, so return 0
+	// We should return a value - so return 0
 	return 0;
 }
 
